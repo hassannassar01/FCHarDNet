@@ -18,10 +18,12 @@ from ptsemseg.utils import convert_state_dict
 
 torch.backends.cudnn.benchmark = True
 
+
 def reset_batchnorm(m):
     if isinstance(m, torch.nn.BatchNorm2d):
-      m.reset_running_stats()
-      m.momentum = None
+        m.reset_running_stats()
+        m.momentum = None
+
 
 def validate(cfg, args):
 
@@ -35,7 +37,7 @@ def validate(cfg, args):
         data_path,
         split=cfg["data"]["val_split"],
         is_transform=True,
-        img_size=(1024,2048),
+        img_size=(1080, 1920),
     )
 
     n_classes = loader.n_classes
@@ -48,45 +50,46 @@ def validate(cfg, args):
     model = get_model(cfg["model"], n_classes).to(device)
     state = convert_state_dict(torch.load(args.model_path)["model_state"])
     model.load_state_dict(state)
-    
+
     if args.bn_fusion:
-      model = fuse_bn_recursively(model)
-    
-    #Transform model into v2. Please set trt=True when converting to TensorRT model
-    model.v2_transform() 
+        model = fuse_bn_recursively(model)
+
+    # Transform model into v2. Please set trt=True when converting to TensorRT model
+    model.v2_transform()
     print(model)
-    
+
     if args.update_bn:
-      print("Reset BatchNorm and recalculate mean/var")
-      model.apply(reset_batchnorm)
-      model.train()
+        print("Reset BatchNorm and recalculate mean/var")
+        model.apply(reset_batchnorm)
+        model.train()
     else:
-      model.eval()
+        model.eval()
     model.to(device)
     total_time = 0
-    
+
     total_params = sum(p.numel() for p in model.parameters())
-    print('Parameters: ', total_params )
-    
+    print('Parameters: ', total_params)
+
     #stat(model, (3, 1024, 2048))
-    torch.backends.cudnn.benchmark=True
+    torch.backends.cudnn.benchmark = True
 
     for i, (images, labels, fname) in enumerate(valloader):
         start_time = timeit.default_timer()
 
         images = images.to(device)
-        
+
         if i == 0:
-          with torch.no_grad():
-            outputs = model(images)        
-        
+            with torch.no_grad():
+                outputs = model(images)
+
         if args.eval_flip:
             outputs = model(images)
 
             # Flip images in numpy (not support in tensor)
             outputs = outputs.data.cpu().numpy()
             flipped_images = np.copy(images.data.cpu().numpy()[:, :, :, ::-1])
-            flipped_images = torch.from_numpy(flipped_images).float().to(device)
+            flipped_images = torch.from_numpy(
+                flipped_images).float().to(device)
             outputs_flipped = model(flipped_images)
             outputs_flipped = outputs_flipped.data.cpu().numpy()
             outputs = (outputs + outputs_flipped[:, :, :, ::-1]) / 2.0
@@ -97,24 +100,24 @@ def validate(cfg, args):
             start_time = time.perf_counter()
 
             with torch.no_grad():
-              outputs = model(images)
+                outputs = model(images)
 
             torch.cuda.synchronize()
             elapsed_time = time.perf_counter() - start_time
-            
+
             if args.save_image:
                 pred = np.squeeze(outputs.data.max(1)[1].cpu().numpy(), axis=0)
                 save_rgb = True
-                
+
                 decoded = loader.decode_segmap_id(pred)
                 dir = "./out_predID/"
                 if not os.path.exists(dir):
-                  os.mkdir(dir)
+                    os.mkdir(dir)
                 misc.imsave(dir+fname[0], decoded)
 
                 if save_rgb:
                     decoded = loader.decode_segmap(pred)
-                    img_input = np.squeeze(images.cpu().numpy(),axis=0)
+                    img_input = np.squeeze(images.cpu().numpy(), axis=0)
                     img_input = img_input.transpose(1, 2, 0)
                     blend = img_input * 0.2 + decoded * 0.8
                     fname_new = fname[0]
@@ -122,34 +125,33 @@ def validate(cfg, args):
                     fname_new += '.jpg'
                     dir = "./out_rgb/"
                     if not os.path.exists(dir):
-                      os.mkdir(dir)
+                        os.mkdir(dir)
                     misc.imsave(dir+fname_new, blend)
 
-                
             pred = outputs.data.max(1)[1].cpu().numpy()
 
         gt = labels.numpy()
-        s = np.sum(gt==pred) / (1024*2048)
+        s = np.sum(gt == pred) / (1024*2048)
 
         if args.measure_time:
             total_time += elapsed_time
             print(
                 "Inference time \
                   (iter {0:5d}): {1:4f}, {2:3.5f} fps".format(
-                    i + 1, s,1 / elapsed_time
+                    i + 1, s, 1 / elapsed_time
                 )
             )
-        
+
         running_metrics.update(gt, pred)
-        
 
     score, class_iou = running_metrics.get_scores()
-    print("Total Frame Rate = %.2f fps" %(500/total_time ))
+    print("Total Frame Rate = %.2f fps" % (500/total_time))
 
     if args.update_bn:
-      model = torch.nn.DataParallel(model, device_ids=range(torch.cuda.device_count()))
-      state2 = {"model_state": model.state_dict()}
-      torch.save(state2, 'hardnet_cityscapes_mod.pth')
+        model = torch.nn.DataParallel(
+            model, device_ids=range(torch.cuda.device_count()))
+        state2 = {"model_state": model.state_dict()}
+        torch.save(state2, 'hardnet_cityscapes_mod.pth')
 
     for k, v in score.items():
         print(k, v)
@@ -212,7 +214,7 @@ if __name__ == "__main__":
                               False by default",
     )
     parser.set_defaults(save_image=False)
-    
+
     parser.add_argument(
         "--update_bn",
         dest="update_bn",
@@ -221,7 +223,7 @@ if __name__ == "__main__":
               False by default",
     )
     parser.set_defaults(update_bn=False)
-    
+
     parser.add_argument(
         "--no-bn_fusion",
         dest="bn_fusion",
@@ -229,7 +231,7 @@ if __name__ == "__main__":
         help="Disable performing batch norm fusion with convolutional layers |\
               bn_fusion is enabled by default",
     )
-    parser.set_defaults(bn_fusion=True)   
+    parser.set_defaults(bn_fusion=True)
 
     args = parser.parse_args()
 

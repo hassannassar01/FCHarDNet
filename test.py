@@ -1,3 +1,4 @@
+import cv2
 import torch
 import argparse
 import os
@@ -8,7 +9,6 @@ from ptsemseg.loader import get_loader
 from ptsemseg.utils import convert_state_dict
 
 torch.backends.cudnn.benchmark = True
-import cv2
 
 
 def init_model(args):
@@ -25,7 +25,8 @@ def init_model(args):
 
     # Setup Model
     model = get_model({"arch": "hardnet"}, n_classes)
-    state = convert_state_dict(torch.load(args.model_path, map_location=device)["model_state"])
+    state = convert_state_dict(torch.load(
+        args.model_path, map_location=device)["model_state"])
     model.load_state_dict(state)
     model.eval()
     model.to(device)
@@ -38,7 +39,8 @@ def test(args):
     proc_size = eval(args.size)
 
     if os.path.isfile(args.input):
-        img_raw, decoded = process_img(args.input, proc_size, device, model, loader)
+        img_raw, decoded = process_img(
+            args.input, proc_size, device, model, loader)
         blend = np.concatenate((img_raw, decoded), axis=1)
         out_path = os.path.join(args.output, os.path.basename(args.input))
         cv2.imwrite("test.png", decoded)
@@ -53,7 +55,8 @@ def test(args):
                 continue
             img_path = os.path.join(args.input, img_file)
 
-            img, decoded = process_img(img_path, proc_size, device, model, loader)
+            img, decoded = process_img(
+                img_path, proc_size, device, model, loader)
             blend = np.concatenate((img, decoded), axis=1)
             out_path = os.path.join(args.output, os.path.basename(img_file))
             cv2.imwrite(out_path, decoded*75)
